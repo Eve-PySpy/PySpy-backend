@@ -31,7 +31,7 @@ MONGO_SERVER_IP = "127.0.0.1"
 # IF time on check between START_TIME and END_TIME script will be excecuted; START_TIME and END_TIME are in 24h format
 # SLEEP_TIME decides how long the script will sleep till the next time check
 START_TIME = 5  # hours
-END_TIME = 6  # hours
+END_TIME = 18  # hours
 SLEEP_TIME = 3600  # seconds
 
 # Logging setup
@@ -41,8 +41,6 @@ logging and this config. Then get a new logger at the beginning
 of the module like this: "Logger = logging.getLogger(__name__)" and
 produce log messages like this: "Logger.error("text", exc_info=True)"
 '''
-LOG_DETAIL = 'DEBUG'
-
 LOG_DICT = {
     'version': 1,
     'disable_existing_loggers': True,
@@ -54,7 +52,7 @@ LOG_DICT = {
     },
     'handlers': {
         'stream_handler': {
-            'level': 'DEBUG',
+            'level': 'INFO',
             'formatter': 'standard',
             'class': 'logging.StreamHandler',
         },
@@ -77,7 +75,7 @@ LOG_DICT = {
     'loggers': {
         '': {
             'handlers': ['timed_rotating_file_handler', 'stream_handler'],
-            'level': 'INFO',
+            'level': 'DEBUG',
             'propagate': True
         },
     }

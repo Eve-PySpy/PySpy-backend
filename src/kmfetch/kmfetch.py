@@ -78,34 +78,22 @@ def get_km_hashes(retry_dates=[]):
     failed_dates = []
 
     if not retry_dates:
-        """
-        try:
-            next_date = datetime.datetime.strptime(
-                str(int(COL_ZKILL.find_one(sort=[("date", -1)])["date"])),
-                '%Y%m%d'
-                ).date() + datetime.timedelta(days=ZKILL_DAYS_REDOWNLOAD)
-        except:
-            next_date = datetime.datetime.strptime(
-                str(ZKILL_OLDEST_DATE_INT),
-                '%Y%m%d'
-                ).date()
-
-        # Return if there would not be any new hashes available yet
-        if next_date > datetime.date.today():
-            return num_km_hashes, failed_dates
-
-        dates = daterange(
-            next_date,
-            datetime.date.today()
-            )
-        """
         headers = {
             "Accept-Encoding": "gzip",
-            "User-Agent": "NextGen PySpy Technology"
+            "User-Agent": "PySpy, Maintainer: Leon, https://github.com/Eve-PySpy/PySpy"
         }
-        r = requests.get("https://zkillboard.com/api/history/totals.json", headers=headers)
-        zkill_total = r.json()
-        Logger.debug("[get_km_hashes] Got zkill totals list")
+        attempt = 0
+        zkill_total = {}
+        while attempt < MAX_RETRY:
+            try:
+                r = requests.get("https://zkillboard.com/api/history/totals.json", headers=headers)
+                if r.status_code == 200:
+                    zkill_total = r.json()
+                    Logger.debug("[get_km_hashes] Got zkill totals list")
+            except:
+                attempt += 1
+                Logger.warning("[get_km_hashes] Attempt: " + str(attempt))
+                time.sleep(pow(2, attempt))
 
         cursor = list(COL_ZKILL.aggregate([
             {"$group": {"_id": "$date", "count": {"$sum": 1}}},
@@ -116,7 +104,7 @@ def get_km_hashes(retry_dates=[]):
         local_total = {}
         for entry in cursor:
             local_total[int(entry["_id"])] = entry["count"]
-        
+
         dates = []
         for k, v in zkill_total.items():
             if not int(k) in local_total:
@@ -145,7 +133,7 @@ def get_km_hashes(retry_dates=[]):
                     next = True
             except:
                 attempt += 1
-                Logger.warning("[get_km_hashes] Attempt: " + attempt + " - sleeping now for {}s".format(pow(2, attempt)))
+                Logger.warning("[get_km_hashes] Attempt: " + str(attempt) + " - sleeping now for {}s".format(pow(2, attempt)))
             time.sleep(pow(2, attempt))
         if r is not None and r.status_code == 200:
             store_km_hashes(date_str, r.json())
@@ -304,9 +292,12 @@ def download_esi_kms(zkill_latest_date=0):
         Logger.info("[download_esi_kms] Process 2 started.")
 
         while proc_1.is_alive() or proc_2.is_alive():
-            process_q.get(block=True)
+            try:
+                process_q.get()
+            except:
+                pass
             num_done_ids += 1
-            print("Progress" + "{:.3%}".format(num_done_ids/num_ids) + " - ({}/{})".format(num_done_ids, num_ids), end='\r')
+            print("ESI download progress: " + "{:.3%}".format(num_done_ids/num_ids) + " - ({}/{})".format(num_done_ids, num_ids), end='\r')
 
 
         proc_1.join()
@@ -389,6 +380,7 @@ def get_kill_details(id, hash, col_esi_fork, col_esi_retry_fork, thread_q):
             if attempt == MAX_RETRY:
                 Logger.warning("[get_kill_details] ESI error: " + str(e))
         # If there was a problem with the ESI connection, sleep and try again
+        Logger.debug("[get_kill_details]")
         time.sleep(pow(2, attempt))
 
     mongo_attempt = 0
