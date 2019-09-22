@@ -141,6 +141,7 @@ def get_km_hashes(retry_dates=[]):
                     next = True
             except:
                 attempt += 1
+                Logger.warning("Attempt: " + attempt + " - sleeping now for {}s".format(pow(2, attempt)))
             time.sleep(pow(2, attempt))
         if r is not None and r.status_code == 200:
             store_km_hashes(date_str, r.json())
