@@ -105,15 +105,18 @@ def get_km_hashes(retry_dates=[]):
         }
         r = requests.get("https://zkillboard.com/api/history/totals.json", headers=headers)
         zkill_total = r.json()
+        Logger.debug("[get_km_hashes] Got zkill totals list")
 
         cursor = list(COL_ZKILL.aggregate([
             {"$group": {"_id": "$date", "count": {"$sum": 1}}},
             {"$sort": {"_id": 1}}]))
 
+        Logger.debug("[get_km_hashes] Got local totals list")
+
         local_total = {}
         for entry in cursor:
             local_total[int(entry["_id"])] = entry["count"]
-
+        
         dates = []
         for k, v in zkill_total.items():
             if not int(k) in local_total:
