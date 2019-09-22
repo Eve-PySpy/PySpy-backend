@@ -78,6 +78,7 @@ def get_km_hashes(retry_dates=[]):
     failed_dates = []
 
     if not retry_dates:
+        """
         try:
             next_date = datetime.datetime.strptime(
                 str(int(COL_ZKILL.find_one(sort=[("date", -1)])["date"])),
@@ -97,6 +98,29 @@ def get_km_hashes(retry_dates=[]):
             next_date,
             datetime.date.today()
             )
+        """
+        headers = {
+            "Accept-Encoding": "gzip",
+            "User-Agent": "NextGen PySpy Technology"
+        }
+        r = requests.get("https://zkillboard.com/api/history/totals.json", headers=headers)
+        zkill_total = r.json()
+
+        cursor = list(COL_ZKILL.aggregate([
+            {"$group": {"_id": "$date", "count": {"$sum": 1}}},
+            {"$sort": {"_id": 1}}]))
+
+        local_total = {}
+        for entry in cursor:
+            local_total[int(entry["_id"])] = entry["count"]
+
+        dates = []
+        for k, v in zkill_total.items():
+            if not int(k) in local_total:
+                dates.append(datetime.datetime.strptime(k, '%Y%m%d').date())
+            else:
+                if not v == local_total[int(k)]:
+                    dates.append(datetime.datetime.strptime(k, '%Y%m%d').date())
     else:
         dates = retry_dates
 
