@@ -90,6 +90,7 @@ def get_km_hashes(retry_dates=[]):
                 if r.status_code == 200:
                     zkill_total = r.json()
                     Logger.debug("[get_km_hashes] Got zkill totals list")
+                    break
             except:
                 attempt += 1
                 Logger.warning("[get_km_hashes] Attempt: " + str(attempt))
@@ -345,7 +346,7 @@ def esi_threads(kill_ids, process_q):
                 time.sleep(0.1)
 
 
-def get_kill_details(id, hash, col_esi_fork, col_esi_retry_fork, thread_q):
+def get_kill_details(id, hash, col_esi_fork, col_esi_retry_fork, thread_q=None):
     """
     Downloads a killmail from CCP's ESI and stores it in `DB.esi_kms`.
     Adds the field `killmail_date` as integer in format YYYYMMDD. Where
@@ -396,7 +397,10 @@ def get_kill_details(id, hash, col_esi_fork, col_esi_retry_fork, thread_q):
             mongo_attempt += 1
             try:
                 col_esi_fork.insert_one(kill_dict)
-                thread_q.put(id)
+                try:
+                    thread_q.put(id)
+                except:
+                    pass
                 break
             except pymongo.errors.DuplicateKeyError:
                 print("Killmail_id duplicate ignored:" + str(id))
