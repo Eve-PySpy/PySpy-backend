@@ -121,6 +121,7 @@ def get_km_hashes(retry_dates=[]):
             else:
                 if not v == local_total[int(k)]:
                     dates.append(datetime.datetime.strptime(k, '%Y%m%d').date())
+        Logger.info("[get_km_hashes] {} days with new killmails found".format(len(dates)))
     else:
         dates = retry_dates
 
@@ -141,7 +142,7 @@ def get_km_hashes(retry_dates=[]):
                     next = True
             except:
                 attempt += 1
-                Logger.warning("Attempt: " + attempt + " - sleeping now for {}s".format(pow(2, attempt)))
+                Logger.warning("[get_km_hashes] Attempt: " + attempt + " - sleeping now for {}s".format(pow(2, attempt)))
             time.sleep(pow(2, attempt))
         if r is not None and r.status_code == 200:
             store_km_hashes(date_str, r.json())
@@ -951,8 +952,6 @@ if __name__ == "__main__":
                 next_date,
                 ZKILL_OLDEST_DATE_INT
                 )
-
-            Logger.info("[main_0] Downloading killmails from " + str(zkill_latest_date) + " and onward.")
 
             # 1. Download killmail_ids and hashes from zKillboard
             Logger.info("[main_1] Checking zkill for new killmail hashes.")
