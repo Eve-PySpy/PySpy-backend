@@ -385,7 +385,7 @@ def get_kill_details(id, hash, col_esi_fork, col_esi_retry_fork, thread_q=None):
             if attempt == MAX_RETRY:
                 Logger.warning("[get_kill_details] ESI error: " + str(e))
         # If there was a problem with the ESI connection, sleep and try again
-        Logger.debug("[get_kill_details]")
+        Logger.debug("[get_kill_details] sleeping for {}s".format(pow(2, attempt)))
         time.sleep(pow(2, attempt))
 
     mongo_attempt = 0
