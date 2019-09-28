@@ -35,6 +35,7 @@ import requests
 
 import config
 import db
+
 # cSpell Checker - Correct Words****************************************
 # // cSpell:words pymongo, russsian, strftime, zkill, zkillboard,
 # // cSpell:words strptime, pyspy, bson, yyyymmdd, ccp's, cyno, cond,
@@ -49,10 +50,11 @@ MAX_MONGO_RETRY = 3  # Number of times to try to reconnect to Mongo DB
 MAX_THREADS = 50  # For ESI KM downloads
 ZKILL_OLDEST_DATE_INT = 20071205  # Date of the oldest killmail on zKillboard
 
-SESSION_START_TIME = str(datetime.datetime.today()) # Used in db.esi_retry
+SESSION_START_TIME = str(datetime.datetime.today())  # Used in db.esi_retry
 MAX_UPLOAD_CHUNK = 5 * 1024 * 1024  # Used in upload_to_pyspy()
 ZKILL_DAYS_REDOWNLOAD = -30  # Needs to be negative
 SUMMARISED_KM_IDS = []  # Global list of all killmail ids processed in this run
+
 
 # **********************************************************************
 # 1. GET KM HASHES FROM ZKILLBOARD =====================================
@@ -127,7 +129,7 @@ def get_km_hashes(retry_dates=[]):
         headers = {
             "Accept-Encoding": "gzip",
             "User-Agent": "PySpy, Author: White Russsian, https://github.com/WhiteRusssian/PySpy"
-            }
+        }
         attempt = 0
         next = False
         r = None
@@ -138,7 +140,8 @@ def get_km_hashes(retry_dates=[]):
                     next = True
             except:
                 attempt += 1
-                Logger.warning("[get_km_hashes] Attempt: " + str(attempt) + " - sleeping now for {}s".format(pow(2, attempt)))
+                Logger.warning(
+                    "[get_km_hashes] Attempt: " + str(attempt) + " - sleeping now for {}s".format(pow(2, attempt)))
             time.sleep(pow(2, attempt))
         if r is not None and r.status_code == 200:
             store_km_hashes(date_str, r.json())
@@ -177,8 +180,8 @@ def store_km_hashes(date_str, records):
                 "date": int(date_str),
                 "kill_id": int(id_str),
                 "hash": hash
-                }
-            )
+            }
+        )
         inserts.append(query)
     mongo_attempt = 0
     while mongo_attempt <= MAX_MONGO_RETRY:
@@ -189,7 +192,7 @@ def store_km_hashes(date_str, records):
             Logger.info(
                 "[store_km_hashes] Downloaded " + str(len(inserts)) +
                 " killmails for date: " + date_str
-                )
+            )
             COL_ZKILL.bulk_write(inserts, ordered=False)
             break
         except pymongo.errors.BulkWriteError:
@@ -199,7 +202,7 @@ def store_km_hashes(date_str, records):
             Logger.warning(
                 "[store_km_hashes] Mongo Disconnect. For date " +
                 date_str + ", reconnect attempt: " + str(mongo_attempt)
-                )
+            )
 
 
 # **********************************************************************
@@ -227,12 +230,12 @@ def download_esi_kms(zkill_latest_date=0):
 
     cursor = list(
         COL_ZKILL.aggregate([
-            {"$match":{"date": {"$gt": zkill_latest_date}}},
-            {"$sort": {"date":1}},
-            {"$group":{"_id": "$date"}},
-            {"$project":{"date":"$date"}}
-            ])
-        )
+            {"$match": {"date": {"$gt": zkill_latest_date}}},
+            {"$sort": {"date": 1}},
+            {"$group": {"_id": "$date"}},
+            {"$project": {"date": "$date"}}
+        ])
+    )
     zkill_dates = list(map(lambda r: int(r['_id']), cursor))
 
     new_km_ids = []
@@ -245,8 +248,8 @@ def download_esi_kms(zkill_latest_date=0):
             COL_ZKILL.find(
                 {"date": date},
                 {"_id": 0, "kill_id": 1}
-                ).sort("kill_id")
-            )
+            ).sort("kill_id")
+        )
 
         zkill_kills = list(map(lambda r: r['kill_id'], cursor))
 
@@ -254,8 +257,8 @@ def download_esi_kms(zkill_latest_date=0):
             COL_ESI.find(
                 {"killmail_date": date},
                 {"_id": 0, "killmail_id": 1}
-                ).sort("killmail_id")
-            )
+            ).sort("killmail_id")
+        )
         esi_kills = list(map(lambda r: r['killmail_id'], cursor))
 
         missing_km_ids = list(set(zkill_kills) - set(esi_kills))
@@ -263,19 +266,18 @@ def download_esi_kms(zkill_latest_date=0):
         new_km_ids += missing_km_ids
 
         print(
-            "Progress: " + "{:.3%}".format(count/total) +
+            "Progress: " + "{:.3%}".format(count / total) +
             ". Total missing so far: " + str(len(new_km_ids)),
             end='\r'
-            )
+        )
 
     Logger.info(
         "[download_esi_kms] Number of killmails to be downloaded from ESI: " +
         str(len(new_km_ids))
-        )
+    )
     # Split workload across 2 processes (2 CPU cores on my server)
     if len(new_km_ids) > 0:
         num_ids = len(new_km_ids)
-        num_done_ids = 0
         split_num = int(num_ids / 2)
         proc_1_ids = new_km_ids[:split_num]
         proc_2_ids = new_km_ids[split_num:]
@@ -296,19 +298,19 @@ def download_esi_kms(zkill_latest_date=0):
         proc_2.start()
         Logger.info("[download_esi_kms] Process 2 started.")
 
-        while proc_1.is_alive() or proc_2.is_alive():
-            try:
-                process_q.get()
-            except:
-                pass
-            num_done_ids += 1
-            print("ESI download progress: " + "{:.3%}".format(num_done_ids/num_ids) + " - ({}/{})".format(num_done_ids, num_ids), end='\r')
-
+        log_proc = mp.Process(
+            target=download_esi_progess_logger,
+            args=(num_ids, process_q)
+        )
+        log_proc.start()
+        Logger.info("[download_esi_kms] Progress Process started.")
 
         proc_1.join()
         Logger.info("[download_esi_kms] Process 1 finished.")
         proc_2.join()
         Logger.info("[download_esi_kms] Process 2 finished.")
+        log_proc.join()
+        Logger.info("[download_esi_kms] Progress Process finished.")
 
         record_new_km_ids(new_km_ids)
 
@@ -340,7 +342,7 @@ def esi_threads(kill_ids, process_q):
                     target=get_kill_details,
                     daemon=False,
                     args=(kill_id, hash, col_esi_fork, col_esi_retry_fork, thread_q)
-                    )
+                )
                 t.start()
                 while not thread_q.empty():
                     process_q.put(thread_q.get())
@@ -360,14 +362,14 @@ def get_kill_details(id, hash, col_esi_fork, col_esi_retry_fork, thread_q=None):
     :param: `hash` CCP killmail hash as string.
     """
     url = (
-        "https://esi.evetech.net/latest/killmails/" +
-        str(id) + "/" +
-        hash + "/?datasource=tranquility"
-        )
+            "https://esi.evetech.net/latest/killmails/" +
+            str(id) + "/" +
+            hash + "/?datasource=tranquility"
+    )
     headers = {
         "Accept-Encoding": "gzip",
         "User-Agent": "PySpy, Author: White Russsian, https://github.com/WhiteRusssian/PySpy"
-        }
+    }
     attempt = 0
     while attempt <= MAX_RETRY:
         attempt += 1
@@ -396,7 +398,7 @@ def get_kill_details(id, hash, col_esi_fork, col_esi_retry_fork, thread_q=None):
         # "killmail_time" : "2018-07-12T00:00:39Z"
         kill_dict["killmail_date"] = int(
             kill_time[0:4] + kill_time[5:7] + kill_time[8:10]
-            )
+        )
         while mongo_attempt <= MAX_MONGO_RETRY:
             mongo_attempt += 1
             try:
@@ -423,7 +425,7 @@ def get_kill_details(id, hash, col_esi_fork, col_esi_retry_fork, thread_q=None):
                     "hash": hash,
                     "error": r.status_code,
                     "session": SESSION_START_TIME
-                    })
+                })
                 break
             except pymongo.errors.AutoReconnect:
                 time.sleep(pow(5, mongo_attempt))
@@ -445,18 +447,18 @@ def retry_failed_esi_downloads():
     try:
         last_session = list(
             COL_ESI_RETRY.find({}).sort("session", -1).limit(1)
-            )[0]["session"]
+        )[0]["session"]
     except IndexError:
         return []
 
     retry_ids = COL_ESI_RETRY.distinct(
         "kill_id", {"session": last_session}
-        )
+    )
 
     Logger.info(
         "[retry_failed_esi_downloads] Number of killmails to be re-download: " +
         str(len(retry_ids))
-        )
+    )
 
     global SESSION_START_TIME
     SESSION_START_TIME = str(datetime.datetime.today())
@@ -477,7 +479,7 @@ def record_new_km_ids(new_km_ids):
     for id in new_km_ids:
         inserts.append(
             InsertOne({"killmail_id": int(id)})
-            )
+        )
     mongo_attempt = 0
     while mongo_attempt <= MAX_MONGO_RETRY:
         mongo_attempt += 1
@@ -488,7 +490,7 @@ def record_new_km_ids(new_km_ids):
             Logger.info(
                 "[record_new_km_ids] Recorded " + str(len(inserts)) +
                 " new killmails waiting for summary processing."
-                )
+            )
             break
         except pymongo.errors.BulkWriteError:
             pass
@@ -497,7 +499,7 @@ def record_new_km_ids(new_km_ids):
             Logger.warning(
                 "[record_new_km_ids] Mongo Disconnected. Failed to record " +
                 "the following new killmail_ids: " + str(new_km_ids)
-                )
+            )
 
 
 def processed_failed_ids():
@@ -512,17 +514,17 @@ def processed_failed_ids():
         Logger.info(
             "[processed_failed_ids] Re-downloading missing ESI killmails. Attempt: " +
             str(attempt)
-            )
+        )
         retry_ids = retry_failed_esi_downloads()
         Logger.info(
             "[processed_failed_ids] Number of ids to be re-downloaded: " + str(len(retry_ids))
-            )
+        )
         if len(retry_ids) > 0:
             create_km_summaries(retry_ids)
             # Get any Killmail_ids that the retry run was still unable to download
             missing_kills = COL_ESI_RETRY.distinct(
                 "kill_id", {"session": SESSION_START_TIME}
-                )
+            )
             if len(missing_kills) == 0:
                 Logger.info("[processed_failed_ids] Successfully re-downloaded all missing killmails.")
                 COL_ESI_RETRY.delete_many({})
@@ -535,10 +537,11 @@ def processed_failed_ids():
                 COL_ESI_RETRY.delete_many({})
                 # Important step to delete any id / hash pairs from COL_NEW
                 # that could not be found on ESI.
-                COL_NEW.delete_many({"killmail_id":{'$in': missing_kills}})
+                COL_NEW.delete_many({"killmail_id": {'$in': missing_kills}})
                 break
         else:
             break
+
 
 # **********************************************************************
 # 3. PREPARE KM_SUMMARY COLLECTION =====================================
@@ -559,7 +562,7 @@ def create_km_summaries(retry_ids=None):
         process_ids = COL_ESI.distinct(
             "killmail_id",
             {"killmail_id": {"$in": retry_ids}}
-            )
+        )
         Logger.info(
             "[create_km_summaries] Found retry killmails: " +
             str(len(process_ids))
@@ -578,8 +581,8 @@ def create_km_summaries(retry_ids=None):
     if not process_ids:
         Logger.info("[create_km_summaries] Going to check all dates.")
 
-        min_esi_year = int(COL_ESI.find_one(sort=[("killmail_date", 1)])['killmail_date']/10000)
-        max_esi_year = int(COL_ESI.find_one(sort=[("killmail_date", -1)])['killmail_date']/10000)
+        min_esi_year = int(COL_ESI.find_one(sort=[("killmail_date", 1)])['killmail_date'] / 10000)
+        max_esi_year = int(COL_ESI.find_one(sort=[("killmail_date", -1)])['killmail_date'] / 10000)
         esi_years = list(range(min_esi_year, max_esi_year + 1))
 
         # esi_years = [2018]  # Uncomment for testing purposes
@@ -591,15 +594,15 @@ def create_km_summaries(retry_ids=None):
                     "killmail_id",
                     {
                         "killmail_date": {"$gt": start_date, "$lt": end_date},
-                        "victim.character_id": { "$exists": True }
+                        "victim.character_id": {"$exists": True}
                     }
-                    )
+                )
 
                 cursor = SQL_CON.execute(
                     '''SELECT DISTINCT killmail_id FROM km_summary
                     WHERE killmail_date > ? AND killmail_date < ?
                     ''', (start_date, end_date)
-                    )
+                )
 
                 sum_ids = list(map(lambda r: r[0], cursor))
 
@@ -609,12 +612,12 @@ def create_km_summaries(retry_ids=None):
                     "Current month: " + str(start_date) +
                     " / Total missing KMs: " +
                     "{:,}".format(len(process_ids)), end='\r'
-                    )
+                )
 
         Logger.info(
             "[create_km_summaries] Full scan of all killmails. To be processed: " +
             str(len(process_ids))
-            )
+        )
 
     kms_processed = 0
     structure_kms = 0
@@ -628,21 +631,21 @@ def create_km_summaries(retry_ids=None):
             Logger.warning(
                 "[create_km_summaries] Could not find killmail_id: " + str(id) +
                 " Attempting to download again..."
-                )
-            hash = COL_ZKILL.find_one({"kill_id":id})["hash"]
+            )
+            hash = COL_ZKILL.find_one({"kill_id": id})["hash"]
             get_kill_details(id, hash, COL_ESI, COL_ESI_RETRY)
             km = COL_ESI.find_one({"killmail_id": id})
             # If killmail is still not downloaded, throw error and go to next id
             if km is None:
                 Logger.error(
                     "[create_km_summaries] Unable to download kill: " + str(id)
-                    )
+                )
                 continue
             else:
                 Logger.info(
                     "[create_km_summaries] Successfully downloaded killmail " +
                     "with id: " + str(id) + ". Processing summary now."
-                    )
+                )
 
         if not "character_id" in km["victim"]:  # not interested in structure kills
             structure_kms += 1
@@ -664,10 +667,10 @@ def create_km_summaries(retry_ids=None):
         if "items" in km["victim"]:
             for item in km["victim"]["items"]:
                 # Check if victim ship had covert cyno fitted (to high slot)
-                if item["item_type_id"] == 28646 and item["flag"] >= 27 and item["flag"] <=34:
+                if item["item_type_id"] == 28646 and item["flag"] >= 27 and item["flag"] <= 34:
                     covert_cyno = True
                 # Check if victim ship had normal cyno fitted (to high slot)
-                if item["item_type_id"] == 21096 and item["flag"] >= 27 and item["flag"] <=34:
+                if item["item_type_id"] == 21096 and item["flag"] >= 27 and item["flag"] <= 34:
                     normal_cyno = True
         attacker_count = 0
         if "attackers" in km:
@@ -680,13 +683,13 @@ def create_km_summaries(retry_ids=None):
             for attacker_id in attacker_ids:
                 attackers_data.append(
                     (killmail_id, killmail_date, attacker_id, attacker_count)
-                    )
+                )
             SQL_CON.executemany(
                 '''REPLACE INTO attackers
                 (killmail_id, killmail_date, attacker_id, attacker_count)
                 VALUES (?, ?, ?, ?)''',
                 attackers_data
-                )
+            )
 
         summary = (
             killmail_id,
@@ -698,13 +701,13 @@ def create_km_summaries(retry_ids=None):
             ship_id,
             covert_cyno,
             normal_cyno
-            )
+        )
         SQL_CON.execute(
             '''REPLACE INTO km_summary (killmail_id, killmail_date,
             solar_system_id, abyssal, attacker_count, victim_id,
             ship_id, covert_cyno, normal_cyno)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''', summary
-            )
+        )
         SQL_CON.commit()
 
         SUMMARISED_KM_IDS.append(id)
@@ -735,51 +738,51 @@ def update_public_database(new_km_ids=[]):
         Logger.info(
             "[update_public_database] Getting list of touched victim " +
             "and attacker ids."
-            )
+        )
         touched_victims = get_touched_victims(new_km_ids)
         touched_attackers = get_touched_attackers(new_km_ids)
         Logger.info(
             "[update_public_database] Identified " + str(len(touched_victims)) +
             " victims and " + str(len(touched_attackers)) +
             " attackers for which the remote database needs to be updated."
-             )
+        )
 
         vic_data = cur.execute(
             '''SELECT * FROM vic_sum WHERE victim_id IN
             (%s)''' % (', '.join(['?'] * len(touched_victims))),
             touched_victims
-            ).fetchall()
+        ).fetchall()
         vic_headers = cur.description
 
         atk_data = cur.execute(
             '''SELECT * FROM atk_sum WHERE attacker_id IN
             (%s)''' % (', '.join(['?'] * len(touched_attackers))),
             touched_attackers
-            ).fetchall()
+        ).fetchall()
         atk_headers = cur.description
 
     else:
         Logger.info(
             '''[update_public_database] Gathering summary stats for all victims.'''
-            )
+        )
         vic_data = cur.execute(
             '''SELECT * FROM vic_sum'''
-            ).fetchall()
+        ).fetchall()
         vic_headers = cur.description
         Logger.info(
             '''[update_public_database] Victim stats finished.'''
-            )
+        )
 
         Logger.info(
             '''[update_public_database] Gathering summary stats for all attackers.'''
-            )
+        )
         atk_data = cur.execute(
             '''SELECT * FROM atk_sum'''
-            ).fetchall()
+        ).fetchall()
         atk_headers = cur.description
         Logger.info(
             '''[update_public_database] Attacker stats finished.'''
-            )
+        )
 
     Logger.info("[update_public_database] Begin victim data upload.")
     prepare_upload_data(vic_data, vic_headers)
@@ -795,6 +798,21 @@ def update_public_database(new_km_ids=[]):
 # **********************************************************************
 # HELPER FUNCTIONS =====================================================
 
+def download_esi_progess_logger(num_ids, process_q):
+    """
+
+    :return:
+    """
+    num_done_ids = 0
+
+    while True:
+        process_q.get()
+
+        num_done_ids += 1
+        print("ESI download progress: " + "{:.3%}".format(num_done_ids / num_ids) + " - ({}/{})".format(num_done_ids,
+                                                                                                        num_ids),
+              end='\r')
+
 
 def get_touched_victims(new_km_ids):
     """
@@ -808,8 +826,8 @@ def get_touched_victims(new_km_ids):
             '''SELECT DISTINCT(victim_id) FROM km_summary
             WHERE killmail_id IN (%s)''' % (', '.join(['?'] * len(new_km_ids))),
             new_km_ids
-            ).fetchall()
-        )
+        ).fetchall()
+    )
 
     return tuple(r[0] for r in touched_victims)
 
@@ -826,8 +844,8 @@ def get_touched_attackers(new_km_ids):
             '''SELECT DISTINCT(attacker_id) FROM attackers
             WHERE killmail_id IN (%s)''' % (', '.join(['?'] * len(new_km_ids))),
             new_km_ids
-            ).fetchall()
-        )
+        ).fetchall()
+    )
 
     return tuple(r[0] for r in touched_attackers)
 
@@ -845,8 +863,8 @@ def prepare_upload_data(data, headers):
     upload_size = sys.getsizeof(
         json.dumps(
             [dict(zip([key[0] for key in headers], row)) for row in data]
-            )
         )
+    )
 
     chunk_count = int(upload_size / MAX_UPLOAD_CHUNK) + 1
     num_rows = len(data)
@@ -859,24 +877,24 @@ def prepare_upload_data(data, headers):
         json_string = json.dumps([
             dict(zip(
                 [key[0] for key in headers], row)) for row in upload_set
-            ])
+        ])
         upload_status = upload_to_pyspy(json_string)
         if not upload_status:
             Logger.error(
                 "[prepare_upload_data] Failed to complete PySpy uploads."
-                )
+            )
             break
         Logger.info(
             "[prepare_upload_data] Progress: " +
             "{:.1%}".format(min(end, num_rows) / num_rows)
-            )
+        )
         start = end
 
     Logger.info(
         "[prepare_upload_data] Successfully uploaded: " + "{:,}".format(num_rows) +
-        " records with total size of: " + "{:0,.1f}".format(upload_size/1024/1024) +
+        " records with total size of: " + "{:0,.1f}".format(upload_size / 1024 / 1024) +
         " MB."
-        )
+    )
 
 
 def upload_to_pyspy(json_data):
@@ -898,20 +916,20 @@ def upload_to_pyspy(json_data):
             Logger.info(
                 "[upload_to_pyspy] Response code: " +
                 str(r.status_code) + ", " + r.text
-                )
+            )
             return True
 
         except requests.ConnectionError:
             Logger.warning(
                 "[upload_to_pyspy] Could not connect to remote database. Attempt: " +
                 str(attempt)
-                )
+            )
             time.sleep(pow(2, attempt))
         except requests.RequestException as e:
             Logger.error(
                 "[upload_to_pyspy] Could not connect to remote database. Attempt: " +
                 str(attempt) + ". Exception message: " + str(e)
-                )
+            )
     return False
 
 
@@ -955,6 +973,7 @@ def redis_listener():
         Logger.debug("RedisQ request was successful")
         return killmail
 
+
 # **********************************************************************
 # SCRIPT CONTROL =======================================================
 
@@ -968,7 +987,8 @@ if __name__ == "__main__":
     """
     while True:
 
-        if is_now_in_time_period(datetime.time(config.START_TIME), datetime.time(config.END_TIME), datetime.datetime.now().time()):
+        if is_now_in_time_period(datetime.time(config.START_TIME), datetime.time(config.END_TIME),
+                                 datetime.datetime.now().time()):
             # Setup database connection and relevant collections
             CLIENT = MongoClient(config.MONGO_SERVER_IP)
             DB = CLIENT.pyspy
@@ -982,17 +1002,17 @@ if __name__ == "__main__":
             # Check
 
             next_date = int((
-                datetime.datetime.strptime(
-                    str(COL_ZKILL.find_one(sort=[("date", -1)])["date"]),
-                    '%Y%m%d'
-                    ).date() +
-                datetime.timedelta(days=ZKILL_DAYS_REDOWNLOAD)
-                ).strftime("%Y%m%d"))
+                                    datetime.datetime.strptime(
+                                        str(COL_ZKILL.find_one(sort=[("date", -1)])["date"]),
+                                        '%Y%m%d'
+                                    ).date() +
+                                    datetime.timedelta(days=ZKILL_DAYS_REDOWNLOAD)
+                            ).strftime("%Y%m%d"))
 
             zkill_latest_date = max(
                 next_date,
                 ZKILL_OLDEST_DATE_INT
-                )
+            )
 
             # 1. Download killmail_ids and hashes from zKillboard
             Logger.info("[main_1] Checking zkill for new killmail hashes.")
@@ -1021,12 +1041,12 @@ if __name__ == "__main__":
             Logger.info(
                 "[main_3] Number of killmail summaries created: " +
                 str(len(SUMMARISED_KM_IDS))
-                )
+            )
 
             # 4. Update PySpy online database with new victim and attacker data
             Logger.info("[main_4] Start uploading victim and attacker data to remote DB.")
             update_public_database(SUMMARISED_KM_IDS)
-            #update_public_database()
+            # update_public_database()
             Logger.info("[main_4] Finished uploading victim and attacker data to remote DB.")
 
             SQL_CON.execute("PRAGMA optimize")
@@ -1037,4 +1057,3 @@ if __name__ == "__main__":
             Logger.info("Time has not yet come")
         Logger.info("Sleeping for an hour")
         time.sleep(config.SLEEP_TIME)
-        Logger.info("Done Sleeping")
