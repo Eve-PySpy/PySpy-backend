@@ -309,7 +309,7 @@ def download_esi_kms(zkill_latest_date=0):
         Logger.info("[download_esi_kms] Process 1 finished.")
         proc_2.join()
         Logger.info("[download_esi_kms] Process 2 finished.")
-        log_proc.join()
+        log_proc.join(timeout=1)
         Logger.info("[download_esi_kms] Progress Process finished.")
 
         record_new_km_ids(new_km_ids)
@@ -941,6 +941,10 @@ def is_now_in_time_period(start_time, end_time, now_time):
 
 
 def redis_listener():
+    """
+
+    :return:
+    """
     redis_client = MongoClient(config.MONGO_SERVER_IP)
     redis_db = redis_client.pyspy
     col_zkill = redis_db.zkill_kms
