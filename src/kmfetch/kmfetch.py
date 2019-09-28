@@ -1023,7 +1023,11 @@ def redis_listener():
         while mongo_attempt <= MAX_MONGO_RETRY:
             mongo_attempt += 1
             try:
-                col_new.insert_one(killmail["package"]["killID"])
+                col_new.insert_one(
+                    {
+                        "killmail_id": killmail["package"]["killID"]
+                    }
+                )
                 Logger.debug("[redis_listener] inserted into new_km_ids")
                 break
             except pymongo.errors.DuplicateKeyError:
