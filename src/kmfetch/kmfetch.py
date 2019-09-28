@@ -409,7 +409,7 @@ def get_kill_details(id, hash, col_esi_fork, col_esi_retry_fork, thread_q=None):
                     pass
                 break
             except pymongo.errors.DuplicateKeyError:
-                print("Killmail_id duplicate ignored:" + str(id))
+                print("[get_kill_details] Killmail_id duplicate ignored:" + str(id))
             except pymongo.errors.AutoReconnect:
                 time.sleep(pow(5, mongo_attempt))
                 Logger.warning("[get_kill_details] Mongo Disconnect. Reconnect attempt: " + str(mongo_attempt))
@@ -941,20 +941,25 @@ def is_now_in_time_period(start_time, end_time, now_time):
 
 
 def redis_listener():
+    redis_client = MongoClient(config.MONGO_SERVER_IP)
+    redis_db = redis_client.pyspy
+    col_zkill = redis_db.zkill_kms
+    col_esi = redis_db.esi_kms
+
     while True:
         try:
-            Logger.debug("Trying to get killmail from RedisQ")
-            r = requests.get('https://redisq.zkillboard.com/listen.php?queueID=zFlux', timeout=30)
+            Logger.debug("[redis_listener] Trying to get killmail from RedisQ")
+            r = requests.get('https://redisq.zkillboard.com/listen.php?queueID=PySpy_dev', timeout=30)
         except (KeyboardInterrupt, SystemExit):
             raise
         except requests.exceptions.Timeout as e:
-            Logger.error("RedisQ Timeout: {}".format(e))
+            Logger.error("[redis_listener] RedisQ Timeout: {}".format(e))
             continue
         except Exception as e:
-            Logger.error("RedisQ request failed: {}".format(e))
+            Logger.error("[redis_listener] RedisQ request failed: {}".format(e))
             continue
         if r.status_code is not 200:
-            Logger.warning("RedisQ gave back a bad status: {}".format(r.status_code))
+            Logger.warning("[redis_listener] RedisQ gave back a bad status: {}".format(r.status_code))
             time.sleep(5)
             continue
 
@@ -963,30 +968,67 @@ def redis_listener():
         except (KeyboardInterrupt, SystemExit):
             raise
         except Exception as e:
-            Logger.error("RedisQ Json decode failed: {}".format(e))
+            Logger.error("[redis_listener] RedisQ Json decode failed: {}".format(e))
             continue
 
         if killmail["package"] is None:
-            Logger.debug("No killmail was given")
+            Logger.debug("[redis_listener] No killmail was given")
             continue
 
-        Logger.debug("RedisQ request was successful")
-        return killmail
+        Logger.debug("[redis_listener] RedisQ request was successful")
 
+        kill_time = int(datetime.datetime.strptime(killmail["package"]["killmail"]["killmail_time"],
+                                                   "%Y-%m-%dT%H:%M:%SZ").date().strftime("%Y%m%d"))
+
+        mongo_attempt = 0
+        while mongo_attempt <= MAX_MONGO_RETRY:
+            mongo_attempt += 1
+            try:
+                col_zkill.insert_one(
+                    {
+                        "date": kill_time,
+                        "kill_id": killmail["package"]["killID"],
+                        "hash": killmail["package"]["zkb"]["hash"]
+                    }
+                )
+                break
+            except pymongo.errors.DuplicateKeyError:
+                print("[redis_listener] Killmail_id duplicate ignored:" + str(id))
+            except pymongo.errors.AutoReconnect:
+                time.sleep(pow(5, mongo_attempt))
+                Logger.warning("[redis_listener] Mongo Disconnect. Reconnect attempt: " + str(mongo_attempt))
+            continue
+
+        killmail["package"]["killmail"]["killmail_time"] = kill_time
+
+        mongo_attempt = 0
+        while mongo_attempt <= MAX_MONGO_RETRY:
+            mongo_attempt += 1
+            try:
+                col_esi.insert_one(killmail["package"]["killmail"])
+                break
+            except pymongo.errors.DuplicateKeyError:
+                print("[redis_listener] Killmail_id duplicate ignored:" + str(id))
+            except pymongo.errors.AutoReconnect:
+                time.sleep(pow(5, mongo_attempt))
+                Logger.warning("[redis_listener] Mongo Disconnect. Reconnect attempt: " + str(mongo_attempt))
+            continue
 
 # **********************************************************************
 # SCRIPT CONTROL =======================================================
 
 
 if __name__ == "__main__":
-    """
+
     redis_process = mp.Process(
-        target=redis_listener(),
+        target=redis_listener,
         args=()
     )
-    """
+    redis_process.start()
+
     while True:
 
+        # If the current time is between the range specified in the config the script will be executed
         if is_now_in_time_period(datetime.time(config.START_TIME), datetime.time(config.END_TIME),
                                  datetime.datetime.now().time()):
             # Setup database connection and relevant collections
