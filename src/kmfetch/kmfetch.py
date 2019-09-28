@@ -991,6 +991,7 @@ def redis_listener():
                         "hash": killmail["package"]["zkb"]["hash"]
                     }
                 )
+                Logger.debug("[redis_listener] inserted into zkill_kms")
                 break
             except pymongo.errors.DuplicateKeyError:
                 print("[redis_listener] Killmail_id duplicate ignored:" + str(id))
@@ -1006,6 +1007,7 @@ def redis_listener():
             mongo_attempt += 1
             try:
                 col_esi.insert_one(killmail["package"]["killmail"])
+                Logger.debug("[redis_listener] inserted into esi_kms")
                 break
             except pymongo.errors.DuplicateKeyError:
                 print("[redis_listener] Killmail_id duplicate ignored:" + str(id))
