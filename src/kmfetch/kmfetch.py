@@ -942,99 +942,95 @@ def is_now_in_time_period(start_time, end_time, now_time):
 
 def redis_listener():
     """
-
+    Listens on zKill's RedisQ service to catch Killmails as they happen.
+    Their hash pairing, complete killmail and ID will be written to the different collections.
+    Their summaries will be created with the next main cycle.
     :return:
     """
-    redis_client = MongoClient(config.MONGO_SERVER_IP)
-    redis_db = redis_client.pyspy
-    col_zkill = redis_db.zkill_kms
-    col_esi = redis_db.esi_kms
-    col_new = redis_db.new_km_ids
 
-    while True:
+    try:
+        Logger.debug("[redis_listener] Trying to get killmail from RedisQ")
+        r = requests.get('https://redisq.zkillboard.com/listen.php?queueID=PySpy_dev', timeout=30)
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except requests.exceptions.Timeout as e:
+        Logger.error("[redis_listener] RedisQ Timeout: {}".format(e))
+        return
+    except Exception as e:
+        Logger.error("[redis_listener] RedisQ request failed: {}".format(e))
+        return
+    if r.status_code is not 200:
+        Logger.warning("[redis_listener] RedisQ gave back a bad status: {}".format(r.status_code))
+        time.sleep(5)
+        return
+
+    try:
+        killmail = r.json()
+    except (KeyboardInterrupt, SystemExit):
+        raise
+    except Exception as e:
+        Logger.error("[redis_listener] RedisQ Json decode failed: {}".format(e))
+        return
+
+    if killmail["package"] is None:
+        Logger.debug("[redis_listener] No killmail was given")
+        return
+
+    Logger.debug("[redis_listener] RedisQ request was successful")
+
+    kill_time = int(datetime.datetime.strptime(killmail["package"]["killmail"]["killmail_time"],
+                                               "%Y-%m-%dT%H:%M:%SZ").date().strftime("%Y%m%d"))
+
+    mongo_attempt = 0
+    while mongo_attempt <= MAX_MONGO_RETRY:
+        mongo_attempt += 1
         try:
-            Logger.debug("[redis_listener] Trying to get killmail from RedisQ")
-            r = requests.get('https://redisq.zkillboard.com/listen.php?queueID=PySpy_dev', timeout=30)
-        except (KeyboardInterrupt, SystemExit):
-            raise
-        except requests.exceptions.Timeout as e:
-            Logger.error("[redis_listener] RedisQ Timeout: {}".format(e))
-            continue
-        except Exception as e:
-            Logger.error("[redis_listener] RedisQ request failed: {}".format(e))
-            continue
-        if r.status_code is not 200:
-            Logger.warning("[redis_listener] RedisQ gave back a bad status: {}".format(r.status_code))
-            time.sleep(5)
-            continue
+            COL_ZKILL.insert_one(
+                {
+                    "date": kill_time,
+                    "kill_id": killmail["package"]["killID"],
+                    "hash": killmail["package"]["zkb"]["hash"]
+                }
+            )
+            Logger.debug("[redis_listener] inserted into zkill_kms")
+            break
+        except pymongo.errors.DuplicateKeyError:
+            print("[redis_listener] Killmail_id duplicate ignored:" + str(id))
+        except pymongo.errors.AutoReconnect:
+            time.sleep(pow(5, mongo_attempt))
+            Logger.warning("[redis_listener] Mongo Disconnect. Reconnect attempt: " + str(mongo_attempt))
 
+    killmail["package"]["killmail"]["killmail_date"] = kill_time
+
+    mongo_attempt = 0
+    while mongo_attempt <= MAX_MONGO_RETRY:
+        mongo_attempt += 1
         try:
-            killmail = r.json()
-        except (KeyboardInterrupt, SystemExit):
-            raise
-        except Exception as e:
-            Logger.error("[redis_listener] RedisQ Json decode failed: {}".format(e))
-            continue
+            COL_ESI.insert_one(killmail["package"]["killmail"])
+            Logger.debug("[redis_listener] inserted into esi_kms")
+            break
+        except pymongo.errors.DuplicateKeyError:
+            print("[redis_listener] Killmail_id duplicate ignored:" + str(id))
+        except pymongo.errors.AutoReconnect:
+            time.sleep(pow(5, mongo_attempt))
+            Logger.warning("[redis_listener] Mongo Disconnect. Reconnect attempt: " + str(mongo_attempt))
 
-        if killmail["package"] is None:
-            Logger.debug("[redis_listener] No killmail was given")
-            continue
-
-        Logger.debug("[redis_listener] RedisQ request was successful")
-
-        kill_time = int(datetime.datetime.strptime(killmail["package"]["killmail"]["killmail_time"],
-                                                   "%Y-%m-%dT%H:%M:%SZ").date().strftime("%Y%m%d"))
-
-        mongo_attempt = 0
-        while mongo_attempt <= MAX_MONGO_RETRY:
-            mongo_attempt += 1
-            try:
-                col_zkill.insert_one(
-                    {
-                        "date": kill_time,
-                        "kill_id": killmail["package"]["killID"],
-                        "hash": killmail["package"]["zkb"]["hash"]
-                    }
-                )
-                Logger.debug("[redis_listener] inserted into zkill_kms")
-                break
-            except pymongo.errors.DuplicateKeyError:
-                print("[redis_listener] Killmail_id duplicate ignored:" + str(id))
-            except pymongo.errors.AutoReconnect:
-                time.sleep(pow(5, mongo_attempt))
-                Logger.warning("[redis_listener] Mongo Disconnect. Reconnect attempt: " + str(mongo_attempt))
-
-        killmail["package"]["killmail"]["killmail_date"] = kill_time
-
-        mongo_attempt = 0
-        while mongo_attempt <= MAX_MONGO_RETRY:
-            mongo_attempt += 1
-            try:
-                col_esi.insert_one(killmail["package"]["killmail"])
-                Logger.debug("[redis_listener] inserted into esi_kms")
-                break
-            except pymongo.errors.DuplicateKeyError:
-                print("[redis_listener] Killmail_id duplicate ignored:" + str(id))
-            except pymongo.errors.AutoReconnect:
-                time.sleep(pow(5, mongo_attempt))
-                Logger.warning("[redis_listener] Mongo Disconnect. Reconnect attempt: " + str(mongo_attempt))
-
-        mongo_attempt = 0
-        while mongo_attempt <= MAX_MONGO_RETRY:
-            mongo_attempt += 1
-            try:
-                col_new.insert_one(
-                    {
-                        "killmail_id": killmail["package"]["killID"]
-                    }
-                )
-                Logger.debug("[redis_listener] inserted into new_km_ids")
-                break
-            except pymongo.errors.DuplicateKeyError:
-                print("[redis_listener] Killmail_id duplicate ignored:" + str(id))
-            except pymongo.errors.AutoReconnect:
-                time.sleep(pow(5, mongo_attempt))
-                Logger.warning("[redis_listener] Mongo Disconnect. Reconnect attempt: " + str(mongo_attempt))
+    mongo_attempt = 0
+    while mongo_attempt <= MAX_MONGO_RETRY:
+        mongo_attempt += 1
+        try:
+            COL_NEW.insert_one(
+                {
+                    "killmail_id": killmail["package"]["killID"]
+                }
+            )
+            Logger.debug("[redis_listener] inserted into new_km_ids")
+            break
+        except pymongo.errors.DuplicateKeyError:
+            print("[redis_listener] Killmail_id duplicate ignored:" + str(id))
+        except pymongo.errors.AutoReconnect:
+            time.sleep(pow(5, mongo_attempt))
+            Logger.warning("[redis_listener] Mongo Disconnect. Reconnect attempt: " + str(mongo_attempt))
 
 # **********************************************************************
 # SCRIPT CONTROL =======================================================
@@ -1042,20 +1038,12 @@ def redis_listener():
 
 if __name__ == "__main__":
 
-    redis_process = mp.Process(
-        target=redis_listener,
-        args=()
-    )
-    redis_process.start()
-    Logger.info("[redis] started redis_listener process")
-
     while True:
 
         # If the current time is between the range specified in the config the script will be executed
         if is_now_in_time_period(datetime.time(config.START_TIME), datetime.time(config.END_TIME),
                                  datetime.datetime.now().time()):
 
-            redis_process.join(1)
             # Setup database connection and relevant collections
             CLIENT = MongoClient(config.MONGO_SERVER_IP)
             DB = CLIENT.pyspy
@@ -1119,13 +1107,5 @@ if __name__ == "__main__":
             SQL_CON.execute("PRAGMA optimize")
             SQL_CON.close()
 
-            redis_process = mp.Process(
-                target=redis_listener,
-                args=()
-            )
-            redis_process.start()
-
         else:
-            Logger.info("Time has not yet come")
-        Logger.info("Sleeping for an hour")
-        time.sleep(config.SLEEP_TIME)
+            redis_listener()
