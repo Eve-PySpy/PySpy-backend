@@ -107,13 +107,17 @@ def get_km_hashes(retry_dates=[]):
             local_total[int(entry["_id"])] = entry["count"]
 
         dates = []
+        new_kms = 0
         for k, v in zkill_total.items():
             if not int(k) in local_total:
                 dates.append(datetime.datetime.strptime(k, '%Y%m%d').date())
+                new_kms += v
             else:
                 if not v == local_total[int(k)]:
                     dates.append(datetime.datetime.strptime(k, '%Y%m%d').date())
+                    new_kms += (v - local_total[int(k)])
         Logger.info("[get_km_hashes] {} days with new killmails found".format(len(dates)))
+        Logger.info("[get_km_hashes] {} new killmails found".format(new_kms))
     else:
         dates = retry_dates
 
@@ -917,24 +921,62 @@ def is_now_in_time_period(start_time, end_time, now_time):
     else:  # Over midnight
         return now_time >= start_time or now_time <= end_time
 
+
+def redis_listener():
+    while True:
+        try:
+            Logger.debug("Trying to get killmail from RedisQ")
+            r = requests.get('https://redisq.zkillboard.com/listen.php?queueID=zFlux', timeout=30)
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except requests.exceptions.Timeout as e:
+            Logger.error("RedisQ Timeout: {}".format(e))
+            continue
+        except Exception as e:
+            Logger.error("RedisQ request failed: {}".format(e))
+            continue
+        if r.status_code is not 200:
+            Logger.warning("RedisQ gave back a bad status: {}".format(r.status_code))
+            time.sleep(5)
+            continue
+
+        try:
+            killmail = r.json()
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except Exception as e:
+            Logger.error("RedisQ Json decode failed: {}".format(e))
+            continue
+
+        if killmail["package"] is None:
+            Logger.debug("No killmail was given")
+            continue
+
+        Logger.debug("RedisQ request was successful")
+        return killmail
+
 # **********************************************************************
 # SCRIPT CONTROL =======================================================
 
 
 if __name__ == "__main__":
-
-    # Setup database connection and relevant collections
-    CLIENT = MongoClient(config.MONGO_SERVER_IP)
-    DB = CLIENT.pyspy
-    COL_ZKILL = DB.zkill_kms
-    COL_ESI = DB.esi_kms
-    COL_ESI_RETRY = DB.retry
-    COL_NEW = DB.new_km_ids
-    SQL_CON = db.connect_db()
-
+    """
+    redis_process = mp.Process(
+        target=redis_listener(),
+        args=()
+    )
+    """
     while True:
 
         if is_now_in_time_period(datetime.time(config.START_TIME), datetime.time(config.END_TIME), datetime.datetime.now().time()):
+            # Setup database connection and relevant collections
+            CLIENT = MongoClient(config.MONGO_SERVER_IP)
+            DB = CLIENT.pyspy
+            COL_ZKILL = DB.zkill_kms
+            COL_ESI = DB.esi_kms
+            COL_ESI_RETRY = DB.retry
+            COL_NEW = DB.new_km_ids
+            SQL_CON = db.connect_db()
 
             # 0. Determine start date for step 2 (download from CCP)
             # Check
