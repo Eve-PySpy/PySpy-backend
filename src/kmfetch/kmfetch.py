@@ -1045,7 +1045,7 @@ if __name__ == "__main__":
                                  datetime.datetime.now().time()):
 
             # Setup database connection and relevant collections
-            CLIENT = MongoClient(config.MONGO_SERVER_IP)
+            CLIENT = MongoClient(config.MONGO_SERVER_IP, config.MONGO_SERVER_PORT)
             DB = CLIENT.pyspy
             COL_ZKILL = DB.zkill_kms
             COL_ESI = DB.esi_kms

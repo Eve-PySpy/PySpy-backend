@@ -27,6 +27,7 @@ UPLOAD_URL = "pyspy.pythonanywhere.com"
 
 # IP of the Mongo Instance
 MONGO_SERVER_IP = "127.0.0.1"
+MONGO_SERVER_PORT = 27018
 
 # IF time on check between START_TIME and END_TIME script will be excecuted; START_TIME and END_TIME are in 24h format
 # SLEEP_TIME decides how long the script will sleep till the next time check
