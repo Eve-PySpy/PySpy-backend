@@ -320,7 +320,7 @@ def esi_threads(kill_ids, process_q):
     # Since `esi_threads` gets launched in new process (not thread), and
     # because MongoDB is not fork-safe, we need to create separate DB
     # connections for each process.
-    client_fork = MongoClient(config.MONGO_SERVER_IP)
+    client_fork = MongoClient(host=config.MONGO_SERVER_IP, port=config.MONGO_SERVER_PORT)
     db_fork = client_fork.pyspy
     col_zkill_fork = db_fork.zkill_kms
     col_esi_fork = db_fork.esi_kms
@@ -924,7 +924,7 @@ def is_now_in_time_period(start_time, end_time, now_time):
 if __name__ == "__main__":
 
     # Setup database connection and relevant collections
-    CLIENT = MongoClient(config.MONGO_SERVER_IP)
+    CLIENT = MongoClient(host=config.MONGO_SERVER_IP, port=config.MONGO_SERVER_PORT)
     DB = CLIENT.pyspy
     COL_ZKILL = DB.zkill_kms
     COL_ESI = DB.esi_kms
